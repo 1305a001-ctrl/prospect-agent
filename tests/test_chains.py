@@ -9,6 +9,15 @@ def test_root_domain_basic():
     assert root_domain("") is None
 
 
+def test_root_domain_strips_platforms():
+    """Many leads share facebook/instagram/sevenrooms as 'website' — not a real chain."""
+    assert root_domain("https://www.facebook.com/MyClinic") is None
+    assert root_domain("https://instagram.com/myclinic") is None
+    assert root_domain("https://www.sevenrooms.com/reservations/x/goog") is None
+    assert root_domain("https://wa.me/60123456") is None
+    assert root_domain("https://linktr.ee/myclinic") is None
+
+
 def test_name_root_with_separator():
     assert name_root("Klinik Mediviron • The Grand Subang") == "Klinik Mediviron"
     assert name_root("Klinik Mediviron - PJ Old Town") == "Klinik Mediviron"

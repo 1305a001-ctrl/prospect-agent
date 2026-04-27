@@ -24,27 +24,50 @@ NORMALIZE = re.compile(r"[^a-zA-Z0-9 ]+")
 WHITESPACE = re.compile(r"\s+")
 PARENT_HINTS = ("klinik", "clinic", "restaurant", "restoran", "the", "kedai")
 
+# Domains that aren't real chains — they're platforms / social media / listing services.
+# Many leads use these as their "website" on Google Maps. Treat as if no website
+# for clustering purposes.
+PLATFORM_DOMAINS = {
+    "facebook", "fb", "instagram", "twitter", "x", "linkedin", "youtube", "tiktok",
+    "google", "maps", "sevenrooms", "opentable", "resy", "calendly", "cal", "setmore",
+    "squareup", "yelp", "foursquare", "whatsapp", "wa", "linktr", "linkin",
+    "carousell", "fave", "groupon", "shopee", "lazada", "grabfood", "foodpanda",
+    "deliveroo", "doordash", "ubereats",
+}
+
 
 def normalize(name: str) -> str:
     return WHITESPACE.sub(" ", NORMALIZE.sub(" ", name)).lower().strip()
 
 
 def root_domain(url: str | None) -> str | None:
-    """Return the registrable-root-ish part of a URL. Naive — doesn't use a PSL."""
+    """Return the registrable-root-ish part of a URL, or None for platform domains.
+
+    Returns None when the resulting root is in PLATFORM_DOMAINS so we don't
+    falsely cluster many businesses just because they all use the same
+    third-party platform (Facebook, Instagram, Sevenrooms, etc.) as their
+    "website" on Google Maps.
+    """
     if not url:
         return None
     try:
         host = urlparse(url).hostname or ""
     except Exception:  # noqa: BLE001
         return None
-    host = host.lstrip("www.")
+    if host.startswith("www."):
+        host = host[4:]
     parts = host.split(".")
     if len(parts) >= 3 and parts[-2] in {"com", "co", "net"}:
         # e.g. mediviron.com.my → mediviron
-        return parts[-3]
-    if len(parts) >= 2:
-        return parts[-2]
-    return host or None
+        root = parts[-3]
+    elif len(parts) >= 2:
+        root = parts[-2]
+    else:
+        root = host or ""
+
+    if not root or root.lower() in PLATFORM_DOMAINS:
+        return None
+    return root
 
 
 def name_root(name: str) -> str | None:
