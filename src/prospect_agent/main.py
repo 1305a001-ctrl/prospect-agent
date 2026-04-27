@@ -12,6 +12,7 @@ import logging
 
 import sentry_sdk
 
+from prospect_agent.chains import detect_chains
 from prospect_agent.db import db
 from prospect_agent.models import Lead
 from prospect_agent.scoring import score_lead
@@ -62,6 +63,18 @@ async def discover_and_score() -> dict:
     return totals
 
 
+async def detect_and_apply_chains() -> int:
+    """Run chain detection across ALL leads (newly-discovered + historical)
+    and apply chain_name + chain_role updates. Idempotent."""
+    rows = await db.all_leads_for_chain_detection()
+    assignments = detect_chains(rows)
+    n = await db.apply_chain_assignments(assignments)
+    parents = sum(1 for v in assignments.values() if v["chain_role"] == "parent")
+    branches = sum(1 for v in assignments.values() if v["chain_role"] == "branch")
+    log.info("Chain detection: %d leads, %d parents, %d branches", n, parents, branches)
+    return n
+
+
 async def main() -> None:
     _setup_logging()
     log.info(
@@ -69,12 +82,18 @@ async def main() -> None:
         settings.niche_list, settings.city_list,
     )
     if not settings.google_maps_api_key:
-        log.error("GOOGLE_MAPS_API_KEY not set — aborting")
+        log.error("GOOGLE_MAPS_API_KEY not set — running chain detection on existing rows only")
+        await db.connect()
+        try:
+            await detect_and_apply_chains()
+        finally:
+            await db.close()
         return
     await db.connect()
     try:
         totals = await discover_and_score()
-        log.info("Done: %s", totals)
+        log.info("Discovery done: %s", totals)
+        await detect_and_apply_chains()
     finally:
         await db.close()
 

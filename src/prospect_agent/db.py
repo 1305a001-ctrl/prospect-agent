@@ -74,6 +74,38 @@ class DB:
         return str(row["id"])
 
 
+    # ─── Chain dedup ────────────────────────────────────────────────────────
+
+    async def all_leads_for_chain_detection(self) -> list[dict]:
+        """Minimal columns the chain detector needs."""
+        rows = await self.pool.fetch(
+            """
+            SELECT id::text AS id, business_name, business_website_url,
+                   business_review_count, niche, geo_country
+            FROM leads
+            """,
+        )
+        return [dict(r) for r in rows]
+
+    async def apply_chain_assignments(self, assignments: dict[str, dict]) -> int:
+        """Update chain_name + chain_role for each lead. Returns rows touched."""
+        if not assignments:
+            return 0
+        async with self.pool.acquire() as conn:
+            await conn.executemany(
+                """
+                UPDATE leads
+                   SET chain_name = $2,
+                       chain_role = $3,
+                       updated_at = NOW()
+                 WHERE id = $1::uuid
+                """,
+                [(lead_id, v["chain_name"], v["chain_role"])
+                 for lead_id, v in assignments.items()],
+            )
+        return len(assignments)
+
+
 async def _init_connection(conn: asyncpg.Connection) -> None:
     await conn.set_type_codec("jsonb", encoder=json.dumps, decoder=json.loads, schema="pg_catalog")
     await conn.set_type_codec("json", encoder=json.dumps, decoder=json.loads, schema="pg_catalog")
